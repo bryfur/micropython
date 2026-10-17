@@ -40,7 +40,9 @@
 #include "extmod/modplatform.h"
 #include "genhdr/mpversion.h"
 
+#ifndef MICROPY_PORT_PYEXEC_MODE_KIND
 pyexec_mode_kind_t pyexec_mode_kind = PYEXEC_MODE_FRIENDLY_REPL;
+#endif
 
 #if MICROPY_REPL_INFO
 static bool repl_display_debugging_info = 0;

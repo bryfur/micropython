@@ -30,4 +30,6 @@
 mp_dynamic_compiler_t mp_dynamic_compiler = {0};
 #endif
 
+#ifndef MICROPY_PORT_STATE_CTX
 mp_state_ctx_t mp_state_ctx;
+#endif

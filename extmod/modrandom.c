@@ -44,7 +44,13 @@
 // Public Domain
 
 #if !MICROPY_ENABLE_DYNRUNTIME
-#if SEED_ON_IMPORT
+#if defined(MICROPY_PORT_RANDOM_STATE) && SEED_ON_IMPORT
+// The port keeps the state (one for each interpreter): a struct with these
+#define yasmarang_pad (MICROPY_PORT_RANDOM_STATE.pad)
+#define yasmarang_n (MICROPY_PORT_RANDOM_STATE.n)
+#define yasmarang_d (MICROPY_PORT_RANDOM_STATE.d)
+#define yasmarang_dat (MICROPY_PORT_RANDOM_STATE.dat)
+#elif SEED_ON_IMPORT
 // If the state is seeded on import then keep these variables in the BSS.
 static uint32_t yasmarang_pad, yasmarang_n, yasmarang_d;
 static uint8_t yasmarang_dat;
@@ -219,7 +225,11 @@ static MP_DEFINE_CONST_FUN_OBJ_2(mod_random_uniform_obj, mod_random_uniform);
 static mp_obj_t mod_random___init__(void) {
     // This module may be imported by more than one name so need to ensure
     // that it's only ever seeded once.
+    #ifdef MICROPY_PORT_RANDOM_STATE
+    #define seeded (MICROPY_PORT_RANDOM_STATE.seeded)
+    #else
     static bool seeded = false;
+    #endif
     if (!seeded) {
         seeded = true;
         mod_random_seed(0, NULL);

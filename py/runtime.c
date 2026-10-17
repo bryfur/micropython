@@ -59,12 +59,14 @@
 #define DEBUG_OP_printf(...) (void)0
 #endif
 
+#ifndef MICROPY_PORT_STATE_CTX
 const mp_obj_module_t mp_module___main__ = {
     .base = { &mp_type_module },
     .globals = (mp_obj_dict_t *)&MP_STATE_VM(dict_main),
 };
 
 MP_REGISTER_MODULE(MP_QSTR___main__, mp_module___main__);
+#endif
 
 #define TYPE_HAS_ITERNEXT(type) (type->flags & (MP_TYPE_FLAG_ITER_IS_ITERNEXT | MP_TYPE_FLAG_ITER_IS_CUSTOM | MP_TYPE_FLAG_ITER_IS_STREAM))
 
@@ -116,6 +118,17 @@ void mp_init(void) {
     // initialise the __main__ module
     mp_obj_dict_init(&MP_STATE_VM(dict_main), 1);
     mp_obj_dict_store(MP_OBJ_FROM_PTR(&MP_STATE_VM(dict_main)), MP_OBJ_NEW_QSTR(MP_QSTR___name__), MP_OBJ_NEW_QSTR(MP_QSTR___main__));
+
+    #ifdef MICROPY_PORT_STATE_CTX
+    // The state is not at a fixed address: this interpreter's __main__ is
+    // made here, in sys.modules
+    {
+        mp_obj_module_t *main_module = m_new_obj(mp_obj_module_t);
+        main_module->base.type = &mp_type_module;
+        main_module->globals = &MP_STATE_VM(dict_main);
+        mp_obj_dict_store(MP_OBJ_FROM_PTR(&MP_STATE_VM(mp_loaded_modules_dict)), MP_OBJ_NEW_QSTR(MP_QSTR___main__), MP_OBJ_FROM_PTR(main_module));
+    }
+    #endif
 
     // locals = globals for outer module (see Objects/frameobject.c/PyFrame_New())
     mp_locals_set(&MP_STATE_VM(dict_main));

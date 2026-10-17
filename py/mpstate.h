@@ -339,7 +339,14 @@ typedef struct _mp_state_ctx_t {
     mp_state_mem_t mem;
 } mp_state_ctx_t;
 
+// A port that runs several interpreters at once (each a task of its own,
+// sharing the program's data) keeps a state for each and says where the
+// current one is.
+#ifdef MICROPY_PORT_STATE_CTX
+#define mp_state_ctx (MICROPY_PORT_STATE_CTX)
+#else
 extern mp_state_ctx_t mp_state_ctx;
+#endif
 
 #define MP_STATE_VM(x) (mp_state_ctx.vm.x)
 #define MP_STATE_MEM(x) (mp_state_ctx.mem.x)

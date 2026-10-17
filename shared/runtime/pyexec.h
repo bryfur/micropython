@@ -33,7 +33,11 @@ typedef enum {
     PYEXEC_MODE_RAW_REPL,
 } pyexec_mode_kind_t;
 
+#ifdef MICROPY_PORT_PYEXEC_MODE_KIND
+#define pyexec_mode_kind (MICROPY_PORT_PYEXEC_MODE_KIND)
+#else
 extern pyexec_mode_kind_t pyexec_mode_kind;
+#endif
 
 #define PYEXEC_FORCED_EXIT (0x100)
 

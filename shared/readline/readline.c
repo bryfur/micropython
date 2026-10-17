@@ -108,7 +108,13 @@ typedef struct _readline_t {
     const char *prompt;
 } readline_t;
 
+#ifdef MICROPY_PORT_READLINE_STATE
+// The port keeps it (one for each interpreter): at least as large
+MP_STATIC_ASSERT(sizeof(readline_t) <= MICROPY_PORT_READLINE_STATE_SIZE);
+#define rl (*(readline_t *)(MICROPY_PORT_READLINE_STATE))
+#else
 static readline_t rl;
+#endif
 
 #if MICROPY_REPL_EMACS_WORDS_MOVE
 static size_t cursor_count_word(int forward) {
