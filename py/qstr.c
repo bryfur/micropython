@@ -272,6 +272,14 @@ qstr qstr_find_strn(const char *str, size_t str_len) {
 
     // search pools for the data
     for (const qstr_pool_t *pool = MP_STATE_VM(last_pool); pool != NULL; pool = pool->prev) {
+        #if defined(MICROPY_PORT_QSTR_FIND_CONST) && MICROPY_QSTR_BYTES_IN_HASH
+        // The firmware's pools (this one and those before it) never change:
+        // the port may find their strings its own way (an index)
+        if (pool == &CONST_POOL) {
+            return MICROPY_PORT_QSTR_FIND_CONST(&CONST_POOL, str, str_len, str_hash);
+        }
+        #endif
+
         size_t low = 0;
         size_t high = pool->len - 1;
 
