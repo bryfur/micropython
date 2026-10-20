@@ -181,16 +181,97 @@ extern const qstr_pool_t MICROPY_QSTR_EXTRA_POOL;
 void qstr_init(void) {
     MP_STATE_VM(last_pool) = (qstr_pool_t *)&CONST_POOL; // we won't modify the const_pool since it has no allocated room left
     MP_STATE_VM(qstr_last_chunk) = NULL;
+    #if MICROPY_QSTR_DYNAMIC_INDEX
+    MP_STATE_VM(qstr_index) = NULL;
+    MP_STATE_VM(qstr_index_bits) = 0;
+    MP_STATE_VM(qstr_index_used) = 0;
+    #endif
 
     #if MICROPY_PY_THREAD && !MICROPY_PY_THREAD_GIL
     mp_thread_mutex_init(&MP_STATE_VM(qstr_mutex));
     #endif
 }
 
+#if MICROPY_QSTR_DYNAMIC_INDEX
+#if MICROPY_QSTR_BYTES_IN_HASH < 1 || MICROPY_QSTR_BYTES_IN_HASH > 2
+#error MICROPY_QSTR_DYNAMIC_INDEX needs a hash of one or two bytes
+#endif
+
+// The qstrs made at run time (in the pools after CONST_POOL), indexed by
+// their hash: open addressing, at most half full.  A slot holds the qstr
+// and its hash, QSTR_INDEX_SLOT(q, hash), 0 if empty (a hash is never 0):
+// with the top bit set, so the collector (which scans the index as it does
+// any block) never takes one for a pointer into the heap.  A qstr past
+// 0x7fff, or no memory for a bigger index, and there is none (NULL: the
+// pools are searched as before) until the next qstr is added.
+MP_REGISTER_ROOT_POINTER(uint32_t *qstr_index);
+
+#define QSTR_INDEX_MIN_BITS (6)
+#define QSTR_INDEX_SLOT(q, hash) ((uint32_t)0x80000000 | (uint32_t)(q) << 16 | (uint32_t)(hash))
+#define QSTR_INDEX_Q(slot) (((slot) >> 16) & 0x7fff)
+
+static size_t qstr_index_at(size_t hash, size_t bits) {
+    return (size_t)(((uint32_t)hash * 2654435761u) >> (32 - bits));
+}
+
+static void qstr_index_put(uint32_t *index, size_t bits, uint32_t slot) {
+    size_t mask = ((size_t)1 << bits) - 1;
+    size_t i = qstr_index_at(slot & 0xffff, bits);
+    while (index[i] != 0) {
+        i = (i + 1) & mask;
+    }
+    index[i] = slot;
+}
+
+// q is the newest qstr (the last pool's last), its hash this one
+static void qstr_index_add(qstr q, size_t hash) {
+    uint32_t *index = MP_STATE_VM(qstr_index);
+    size_t bits = MP_STATE_VM(qstr_index_bits);
+    size_t used = MP_STATE_VM(qstr_index_used) + 1;
+
+    MP_STATE_VM(qstr_index_used) = used;
+    if (index != NULL && used * 2 <= ((size_t)1 << bits) && q <= 0x7fff) {
+        qstr_index_put(index, bits, QSTR_INDEX_SLOT(q, hash));
+        return;
+    }
+
+    // a new index (the first, a bigger one, or again after none), of every
+    // qstr made at run time
+    if (index != NULL) {
+        m_del(uint32_t, index, (size_t)1 << bits);
+        MP_STATE_VM(qstr_index) = NULL;
+    }
+    if (q > 0x7fff) {
+        return;
+    }
+    bits = QSTR_INDEX_MIN_BITS;
+    while (((size_t)1 << bits) < used * 2) {
+        bits++;
+    }
+    index = m_new_maybe(uint32_t, (size_t)1 << bits);
+    if (index == NULL) {
+        return;
+    }
+    memset(index, 0, sizeof(uint32_t) << bits);
+    for (const qstr_pool_t *pool = MP_STATE_VM(last_pool); pool != &CONST_POOL; pool = pool->prev) {
+        for (size_t at = 0; at < pool->len; at++) {
+            qstr_index_put(index, bits, QSTR_INDEX_SLOT(pool->total_prev_len + at, pool->hashes[at]));
+        }
+    }
+    MP_STATE_VM(qstr_index) = index;
+    MP_STATE_VM(qstr_index_bits) = bits;
+}
+#endif
+
 static const qstr_pool_t *find_qstr(qstr *q) {
     // search pool for this qstr
     // total_prev_len==0 in the final pool, so the loop will always terminate
     const qstr_pool_t *pool = MP_STATE_VM(last_pool);
+    // FPC: one of the firmware's (most names a program uses) found from
+    // there, not after every pool made at run time
+    if (*q < CONST_POOL.total_prev_len + CONST_POOL.len) {
+        pool = &CONST_POOL;
+    }
     while (*q < pool->total_prev_len) {
         pool = pool->prev;
     }
@@ -255,6 +336,10 @@ static qstr qstr_add(mp_uint_t len, const char *q_ptr) {
     MP_STATE_VM(last_pool)->qstrs[at] = q_ptr;
     MP_STATE_VM(last_pool)->len++;
 
+    #if MICROPY_QSTR_DYNAMIC_INDEX
+    qstr_index_add(MP_STATE_VM(last_pool)->total_prev_len + at, hash);
+    #endif
+
     // return id for the newly-added qstr
     return MP_STATE_VM(last_pool)->total_prev_len + at;
 }
@@ -270,8 +355,32 @@ qstr qstr_find_strn(const char *str, size_t str_len) {
     size_t str_hash = qstr_compute_hash((const byte *)str, str_len);
     #endif
 
+    const qstr_pool_t *pool = MP_STATE_VM(last_pool);
+
+    #if MICROPY_QSTR_DYNAMIC_INDEX
+    // the qstrs made at run time by the index, if there is one; then only
+    // the firmware's pools are left
+    uint32_t *index = MP_STATE_VM(qstr_index);
+    if (index != NULL) {
+        size_t bits = MP_STATE_VM(qstr_index_bits);
+        size_t mask = ((size_t)1 << bits) - 1;
+        for (size_t i = qstr_index_at(str_hash, bits); index[i] != 0; i = (i + 1) & mask) {
+            if ((index[i] & 0xffff) == str_hash) {
+                qstr q = QSTR_INDEX_Q(index[i]);
+                const qstr_pool_t *p = find_qstr(&q);
+                if (p->lengths[q] == str_len && memcmp(p->qstrs[q], str, str_len) == 0) {
+                    return QSTR_INDEX_Q(index[i]);
+                }
+            }
+        }
+        while (pool != &CONST_POOL) {
+            pool = pool->prev;
+        }
+    }
+    #endif
+
     // search pools for the data
-    for (const qstr_pool_t *pool = MP_STATE_VM(last_pool); pool != NULL; pool = pool->prev) {
+    for (; pool != NULL; pool = pool->prev) {
         #if defined(MICROPY_PORT_QSTR_FIND_CONST) && MICROPY_QSTR_BYTES_IN_HASH
         // The firmware's pools (this one and those before it) never change:
         // the port may find their strings its own way (an index)

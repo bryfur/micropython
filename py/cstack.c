@@ -46,12 +46,4 @@ mp_uint_t mp_cstack_usage(void) {
     return MP_STATE_THREAD(stack_top) - (char *)&stack_dummy;
 }
 
-#if MICROPY_STACK_CHECK
-
-void mp_cstack_check(void) {
-    if (mp_cstack_usage() >= MP_STATE_THREAD(stack_limit)) {
-        mp_raise_recursion_depth();
-    }
-}
-
-#endif // MICROPY_STACK_CHECK
+// (mp_cstack_check(): inline, cstack.h)

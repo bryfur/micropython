@@ -1299,6 +1299,62 @@ yield:
                     MARK_EXC_IP_SELECTIVE();
                     mp_obj_t rhs = POP();
                     mp_obj_t lhs = TOP();
+                    #if MICROPY_OPT_VM_SMALL_INT_FAST_PATH && MICROPY_OBJ_REPR == MICROPY_OBJ_REPR_A
+                    // Two small ints, (v << 1) | 1 each: compared as they
+                    // are; a + b is l + (r - 1), a - b is l - (r - 1), each
+                    // kept when it does not overflow (fits a small int)
+                    if ((mp_uint_t)lhs & (mp_uint_t)rhs & 1) {
+                        mp_int_t l = (mp_int_t)lhs, r = (mp_int_t)rhs, res;
+                        switch (ip[-1] - MP_BC_BINARY_OP_MULTI) {
+                            case MP_BINARY_OP_LESS:
+                                SET_TOP(mp_obj_new_bool(l < r));
+                                DISPATCH();
+                            case MP_BINARY_OP_MORE:
+                                SET_TOP(mp_obj_new_bool(l > r));
+                                DISPATCH();
+                            case MP_BINARY_OP_LESS_EQUAL:
+                                SET_TOP(mp_obj_new_bool(l <= r));
+                                DISPATCH();
+                            case MP_BINARY_OP_MORE_EQUAL:
+                                SET_TOP(mp_obj_new_bool(l >= r));
+                                DISPATCH();
+                            case MP_BINARY_OP_EQUAL:
+                                SET_TOP(mp_obj_new_bool(l == r));
+                                DISPATCH();
+                            case MP_BINARY_OP_NOT_EQUAL:
+                                SET_TOP(mp_obj_new_bool(l != r));
+                                DISPATCH();
+                            case MP_BINARY_OP_ADD:
+                            case MP_BINARY_OP_INPLACE_ADD:
+                                if (!__builtin_add_overflow(l, r - 1, &res)) {
+                                    SET_TOP((mp_obj_t)res);
+                                    DISPATCH();
+                                }
+                                break;
+                            case MP_BINARY_OP_SUBTRACT:
+                            case MP_BINARY_OP_INPLACE_SUBTRACT:
+                                if (!__builtin_sub_overflow(l, r - 1, &res)) {
+                                    SET_TOP((mp_obj_t)res);
+                                    DISPATCH();
+                                }
+                                break;
+                            case MP_BINARY_OP_AND:
+                            case MP_BINARY_OP_INPLACE_AND:
+                                SET_TOP((mp_obj_t)(l & r));
+                                DISPATCH();
+                            case MP_BINARY_OP_OR:
+                            case MP_BINARY_OP_INPLACE_OR:
+                                SET_TOP((mp_obj_t)(l | r));
+                                DISPATCH();
+                            case MP_BINARY_OP_XOR:
+                            case MP_BINARY_OP_INPLACE_XOR:
+                                SET_TOP((mp_obj_t)((l ^ r) | 1));
+                                DISPATCH();
+                            default:
+                                break;
+                        }
+                    }
+                    #endif
                     SET_TOP(mp_binary_op(ip[-1] - MP_BC_BINARY_OP_MULTI, lhs, rhs));
                     DISPATCH();
                 }

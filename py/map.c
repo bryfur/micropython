@@ -188,6 +188,25 @@ mp_map_elem_t *MICROPY_WRAP_MP_MAP_LOOKUP(mp_map_lookup)(mp_map_t * map, mp_obj_
         }
     }
 
+    #if MICROPY_OPT_MAP_SMALL_SCAN
+    // FPC: a small hash table of qstrs looked up by a qstr: only the same
+    // object can match, so its slots are compared and no hash is needed (an
+    // instance's members, looked at first for each method it calls, are a
+    // few slots, and the method is not among them)
+    if (compare_only_ptrs && !map->is_ordered && map->alloc <= MICROPY_OPT_MAP_SMALL_SCAN
+        && mp_obj_is_qstr(index) && lookup_kind != MP_MAP_LOOKUP_REMOVE_IF_FOUND) {
+        for (mp_map_elem_t *elem = map->table, *top = elem + map->alloc; elem < top; elem++) {
+            if (elem->key == index) {
+                MAP_CACHE_SET(index, elem - map->table);
+                return elem;
+            }
+        }
+        if (lookup_kind == MP_MAP_LOOKUP) {
+            return NULL;
+        }
+    }
+    #endif
+
     // if the map is an ordered array then we must do a brute force linear search
     if (map->is_ordered) {
         for (mp_map_elem_t *elem = &map->table[0], *top = &map->table[map->used]; elem < top; elem++) {

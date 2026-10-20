@@ -1020,8 +1020,17 @@ found:
     GC_EXIT();
 
     #if MICROPY_GC_CONSERVATIVE_CLEAR
-    // be conservative and zero out all the newly allocated blocks
-    memset((byte *)ret_ptr, 0, (end_block - start_block + 1) * BYTES_PER_BLOCK);
+    // be conservative and zero out all the newly allocated blocks (FPC: up
+    // to 64 bytes here, word by word: most objects are a block or two, a
+    // call to memset costs more than clearing them)
+    size_t n_clear = (end_block - start_block + 1) * BYTES_PER_BLOCK;
+    if (n_clear <= 64) {
+        for (uintptr_t *w = ret_ptr, *top = w + n_clear / sizeof(uintptr_t); w < top; w++) {
+            *w = 0;
+        }
+    } else {
+        memset((byte *)ret_ptr, 0, n_clear);
+    }
     #else
     // zero out the additional bytes of the newly allocated blocks
     // This is needed because the blocks may have previously held pointers

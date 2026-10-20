@@ -50,7 +50,21 @@ mp_uint_t mp_cstack_usage(void);
 
 #if MICROPY_STACK_CHECK
 
-void mp_cstack_check(void);
+// FPC: inline (each call of a Python function checks): the stack pointer
+// against the limit, the raise out of line
+MP_NORETURN void mp_raise_recursion_depth(void);
+
+static inline void mp_cstack_check(void) {
+    #if defined(__GNUC__) && __GNUC__ >= 14
+    char *sp = (char *)__builtin_stack_address();
+    #else
+    volatile int stack_dummy;
+    char *sp = (char *)&stack_dummy;
+    #endif
+    if ((mp_uint_t)(MP_STATE_THREAD(stack_top) - sp) >= MP_STATE_THREAD(stack_limit)) {
+        mp_raise_recursion_depth();
+    }
+}
 
 #else
 

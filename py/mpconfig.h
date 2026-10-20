@@ -691,6 +691,27 @@ typedef uint64_t mp_uint_t;
 // linear search on ordered (especially in-ROM) maps. Can provide a +10-15%
 // performance improvement on benchmarks involving lots of attribute access
 // or dictionary lookup.
+// FPC: whether the qstrs made at run time are found by an index on their
+// hash (the heap's) rather than by a search through their pools, which
+// qstr_find_strn() did each time a str was made; needs the hash
+#ifndef MICROPY_QSTR_DYNAMIC_INDEX
+#define MICROPY_QSTR_DYNAMIC_INDEX (0)
+#endif
+
+// FPC: whether a small map of qstrs only, looked up by a qstr, has its
+// slots compared rather than the qstr's hash computed (it is in the qstr's
+// pool: several reads); up to this many slots (0: never)
+#ifndef MICROPY_OPT_MAP_SMALL_SCAN
+#define MICROPY_OPT_MAP_SMALL_SCAN (0)
+#endif
+
+// FPC: whether the VM does a binary operation of two small ints itself
+// (comparisons, + and - that do not overflow, &, |, ^) rather than calling
+// mp_binary_op(); object representation A only
+#ifndef MICROPY_OPT_VM_SMALL_INT_FAST_PATH
+#define MICROPY_OPT_VM_SMALL_INT_FAST_PATH (0)
+#endif
+
 #ifndef MICROPY_OPT_MAP_LOOKUP_CACHE
 #define MICROPY_OPT_MAP_LOOKUP_CACHE (MICROPY_CONFIG_ROM_LEVEL_AT_LEAST_EXTRA_FEATURES)
 #endif
